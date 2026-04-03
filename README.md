@@ -11,16 +11,33 @@ FastAPI + boto3 と Terraform で、MiniStack / Floci / Kumo / MinIO（S3 のみ
 | S3 | バケット作成・PUT/GET |
 | EventBridge | カスタムバス・PutEvents |
 | Cognito | User Pool / Client |
-| SES | sesv2（`RUN_SES_PROBE=1` でテスト対象に含める） |
+| SES | まず sesv2、失敗時は Classic `ses`（Query）にフォールバック（`RUN_SES_PROBE=1`） |
 | SQS | キュー作成・送受信 |
 | SNS | トピック作成・Publish |
 | DynamoDB | テーブル・Put/Get |
 | Secrets Manager | シークレット作成・Get |
 | SSM | パラメータ Put/Get |
-| KMS | ListKeys |
+| KMS | GenerateRandom → ListKeys → CreateKey（いずれか成功で可） |
 | STS | GetCallerIdentity |
 
-統合テスト `test_probe_core_stack` は **SES 以外**の上記を検証します。
+統合テスト `test_probe_core_stack` は **SES / KMS を除く**上記を検証します（KMS はエミュレータ差が大きい）。KMS を必ず見る場合は `RUN_KMS_PROBE=1 uv run pytest tests/test_probe_integration.py::test_probe_kms_when_enabled -m integration -v`。
+
+### S3 API の再現度（マトリクス）
+
+代表的な S3 操作だけをまとめて試し、**`operations` ごとの成否**を JSON で返します（AWS 全 API の網羅ではない）。
+
+```bash
+uv run uvicorn app.main:app --reload
+curl -s http://127.0.0.1:8000/probe/s3/coverage | jq .
+```
+
+または:
+
+```bash
+uv run pytest tests/test_s3_coverage_integration.py -m integration -v
+```
+
+実装は [app/s3_coverage.py](app/s3_coverage.py)（`ListBuckets` / `CreateBucket` / `PutObject` / `GetObject` / `ListObjects` / `ListObjectsV2` / `CopyObject` / タグ / `DeleteObjects` / マルチパート / バージョニング / `GetObjectAttributes` など）。エミュレータを切り替えて `summary` と `operations` を並べれば比較できます。
 
 ## クイックスタート
 
@@ -40,7 +57,8 @@ docker compose --profile kumo up -d
 export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=us-east-1
 export AWS_ENDPOINT_URL=http://localhost:4566
 uv run pytest tests/ -m integration -v
-# SES はエミュレータ差が大きいため別途: RUN_SES_PROBE=1 uv run pytest tests/test_probe_integration.py::test_probe_ses_when_enabled -m integration -v
+# SES: RUN_SES_PROBE=1 uv run pytest tests/test_probe_integration.py::test_probe_ses_when_enabled -m integration -v
+# KMS: RUN_KMS_PROBE=1 uv run pytest tests/test_probe_integration.py::test_probe_kms_when_enabled -m integration -v
 uv run uvicorn app.main:app --reload
 # curl http://127.0.0.1:8000/probe
 ```

@@ -92,12 +92,13 @@ def probe_cognito() -> dict[str, Any]:
 
 
 def probe_ses() -> dict[str, Any]:
-    """SES API v2 (JSON). Emulators vary: identity creation may be unsupported; send_email is the real smoke test."""
+    """SES: try sesv2 (JSON) first, then classic Query API — Floci/MiniStack often expose only ses; misrouted sesv2 can hit S3 (uploads error)."""
     settings = get_settings()
-    ses = boto_client("sesv2")
     email = settings.ses_probe_email
-    identity_note = None
-    try:
+
+    def try_sesv2() -> dict[str, Any]:
+        ses = boto_client("sesv2")
+        identity_note = None
         try:
             ses.create_email_identity(EmailIdentity=email)
         except Exception as e:
@@ -116,8 +117,36 @@ def probe_ses() -> dict[str, Any]:
         if identity_note:
             out["identity_note"] = identity_note
         return out
+
+    def try_ses_classic() -> dict[str, Any]:
+        ses = boto_client("ses")
+        try:
+            ses.verify_email_identity(EmailAddress=email)
+        except Exception:
+            pass
+        ses.send_email(
+            Source=email,
+            Destination={"ToAddresses": [email]},
+            Message={
+                "Subject": {"Data": "probe", "Charset": "UTF-8"},
+                "Body": {"Text": {"Data": "probe body", "Charset": "UTF-8"}},
+            },
+        )
+        return {"ok": True, "email": email, "api": "ses"}
+
+    try:
+        return try_sesv2()
     except Exception as e:
-        return _err(e)
+        v2_err = _err(e)
+        try:
+            return try_ses_classic()
+        except Exception as e2:
+            return {
+                "ok": False,
+                "error": "ses_both_failed",
+                "sesv2": v2_err,
+                "ses": _err(e2),
+            }
 
 
 def probe_sqs() -> dict[str, Any]:
@@ -230,12 +259,28 @@ def probe_ssm() -> dict[str, Any]:
 
 
 def probe_kms() -> dict[str, Any]:
+    """Try several KMS APIs — emulators differ (e.g. MiniStack may reject ListKeys with 405)."""
     kms = boto_client("kms")
+    last: Exception | None = None
+    try:
+        r = kms.generate_random(NumberOfBytes=16)
+        plen = len(r.get("Plaintext") or b"")
+        return {"ok": plen == 16, "method": "GenerateRandom", "bytes": plen}
+    except Exception as e:
+        last = e
     try:
         r = kms.list_keys(Limit=5)
-        return {"ok": True, "key_count": len(r.get("Keys", []))}
+        return {"ok": True, "method": "ListKeys", "key_count": len(r.get("Keys", []))}
     except Exception as e:
-        return _err(e)
+        last = e
+    try:
+        ck = kms.create_key(Description="probe-kms")
+        kid = ck["KeyMetadata"]["KeyId"]
+        kms.describe_key(KeyId=kid)
+        return {"ok": True, "method": "CreateKey+DescribeKey", "key_id": kid}
+    except Exception as e:
+        last = e
+    return _err(last) if last else {"ok": False, "error": "KMS", "message": "no method worked"}
 
 
 def probe_sts() -> dict[str, Any]:
@@ -266,3 +311,9 @@ def run_all_probes() -> dict[str, Any]:
 def run_probes_except_ses() -> dict[str, Any]:
     """All probes except SES (sesv2 parity varies by emulator)."""
     return {k: v for k, v in run_all_probes().items() if k != "ses"}
+
+
+def run_probes_for_core_integration() -> dict[str, Any]:
+    """Default CI/integration: no SES, no KMS (KMS ListKeys/API surface varies on MiniStack and others)."""
+    skip = frozenset({"ses", "kms"})
+    return {k: v for k, v in run_all_probes().items() if k not in skip}
