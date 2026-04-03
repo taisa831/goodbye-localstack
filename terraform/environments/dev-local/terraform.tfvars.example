@@ -1,0 +1,7 @@
+aws_region          = "us-east-1"
+aws_access_key_id   = "test"
+aws_secret_access_key = "test"
+# MiniStack / Floci / Kumo (single port):
+aws_endpoint_url    = "http://localhost:4566"
+name_prefix         = "probe"
+ses_email           = "probe@example.com"

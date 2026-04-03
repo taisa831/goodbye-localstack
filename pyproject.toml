@@ -1,0 +1,29 @@
+[project]
+name = "goodby-localstack"
+version = "0.1.0"
+description = "FastAPI + boto3 + Terraform で LocalStack 代替エミュレータを検証するサンプル"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "boto3>=1.35.0",
+    "botocore>=1.35.0",
+    "pydantic-settings>=2.6.0",
+    "httpx>=0.27.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "integration: calls live AWS APIs (requires emulator; set AWS_ENDPOINT_URL or AWS_S3_ENDPOINT_URL)",
+]

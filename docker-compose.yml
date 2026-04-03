@@ -1,0 +1,37 @@
+# One profile at a time for :4566 emulators (MiniStack / Floci / Kumo).
+# MinIO uses :9000 (S3 only).
+
+services:
+  ministack:
+    image: nahuelnucera/ministack:latest
+    ports:
+      - "4566:4566"
+    profiles: ["ministack"]
+
+  floci:
+    image: hectorvent/floci:latest
+    ports:
+      - "4566:4566"
+    profiles: ["floci"]
+
+  kumo:
+    image: ghcr.io/sivchari/kumo:latest
+    ports:
+      - "4566:4566"
+    profiles: ["kumo"]
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    profiles: ["minio"]
+
+volumes:
+  minio-data:
